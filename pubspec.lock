@@ -204,10 +204,10 @@ packages:
     dependency: "direct dev"
     description:
       name: google_mlkit_smart_reply
-      sha256: c11aa3caa0031ccdafe80388816f7d9f7c6ab1a07733c6ff725d498a69185d35
+      sha256: "5a54de1b38e65a476c05605440691043befd3444570457d85f744c71154ef038"
       url: "https://pub.dev"
     source: hosted
-    version: "0.11.0"
+    version: "0.12.0"
   google_sign_in:
     dependency: "direct dev"
     description:
