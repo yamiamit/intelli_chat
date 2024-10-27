@@ -72,7 +72,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text('Login'),
+          title: Center(child: Text('Login')),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -83,18 +83,16 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                     signinwithgoogle();
                   });
                 },
-                child: Expanded(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SvgPicture.asset(
-                        'assets/google.svg',
-                        height: 24.0,
-                      ),
-                      SizedBox(width: 10),
-                      Text('Sign in with Google'),
-                    ],
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SvgPicture.asset(
+                      'assets/google.svg',
+                      height: 24.0,
+                    ),
+                    SizedBox(width: 10),
+                    Text('Sign in with Google'),
+                  ],
                 ),
               ),
               SizedBox(height: 10),

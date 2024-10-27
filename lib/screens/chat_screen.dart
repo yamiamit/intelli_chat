@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flash_chat/constants.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_mlkit_smart_reply/google_mlkit_smart_reply.dart';
 
 class ChatScreen extends StatefulWidget {
   static const id = 'ChatScreen';
@@ -14,50 +14,93 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final messagecontroller = TextEditingController();
-  late final User userprofile;
-  late String messagetext;
+  final messageController = TextEditingController();
+  late User loggedInUser;
+  late String messageText;
   final _auth = FirebaseAuth.instance;
   final _firestore = FirebaseFirestore.instance;
   final ScrollController _scrollController = ScrollController();
-  late User loggedinuser;
-  void getcurrentuser() {
+  final SmartReply _smartReply = SmartReply();
+  List<MessageBubble> messageBubbles = [];
+
+  @override
+  void initState() {
+    super.initState();
+    getCurrentUser();
+  }
+
+  void getCurrentUser() async {
     try {
-      final user = _auth
-          .currentUser; // this method itself is a async so we cannot change
+      final user = _auth.currentUser;
       if (user != null) {
-        loggedinuser = user;
+        setState(() {
+          loggedInUser = user;
+        });
       }
     } catch (e) {
       print(e);
     }
   }
 
-  void _scrolltobottom() {
-    _scrollController.animateTo(_scrollController.position.maxScrollExtent,
-        duration: Duration(milliseconds: 300), curve: Curves.easeOut);
+  Future<SmartReplySuggestionResult> suggestReplies() async {
+    if (messageBubbles.isEmpty) {
+      print('I m sorry');
+      return SmartReplySuggestionResult(
+        status: SmartReplySuggestionResultStatus.noReply,
+        suggestions: [],
+      );
+    }
+     final messages = await messageBubbles;
+    // Add messages to the conversation for Smart Reply
+    for (var message in messages) {
+      final userId = message.isMe ? 'localUser' : 'remoteUser';
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+
+      if (message.isMe) {
+        _smartReply.addMessageToConversationFromLocalUser(message.text, timestamp);
+      } else {
+        _smartReply.addMessageToConversationFromRemoteUser(
+          message.text,
+          timestamp,
+          userId,
+        );
+      }
+    }
+
+    final result = await _smartReply.suggestReplies();
+
+    try{
+      result.status == SmartReplySuggestionResultStatus.success;
+      print('suggestions = ${result.suggestions}');
+    } catch(e)
+    {
+      print('something went wrong');
+    }
+    return result;
   }
 
-  @override
-  void initState() {
-    // TODO: implement initState
-    super.initState();
-    getcurrentuser();
+  void _scrollToBottom() {
+    _scrollController.animateTo(
+      _scrollController.position.maxScrollExtent,
+      duration: Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
   }
+
+
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        leading: null,
         actions: <Widget>[
           IconButton(
-              icon: Icon(Icons.close),
-              onPressed: () {
-                setState(() {
-                  Navigator.pop(context);
-                });
-              }),
+            icon: Icon(Icons.close),
+            onPressed: () {
+              _auth.signOut();
+              Navigator.pop(context);
+            },
+          ),
         ],
         title: Hero(
           tag: 'name',
@@ -76,7 +119,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   .orderBy('timestamp')
                   .snapshots(),
               builder: (context, snapshot) {
-                List<MessageBubble> messagebubbles = [];
+
                 if (snapshot.hasData) {
                   final messages = snapshot.data?.docs;
 
@@ -84,21 +127,24 @@ class _ChatScreenState extends State<ChatScreen> {
                     final messageText = message.get('text');
                     final messageSender = message.get('sender');
                     final messageId = message.id;
-                    final currentUser = loggedinuser.email;
-                    final messagebubble = MessageBubble(
-                        text: messageText,
-                        sender: messageSender,
-                        messageId: messageId,
-                        isMe: currentUser == messageSender);
-                    messagebubbles.add(messagebubble);
+                    final currentUser = loggedInUser.email;
+
+                    final messageBubble = MessageBubble(
+                      text: messageText,
+                      sender: messageSender,
+                      messageId: messageId,
+                      isMe: currentUser == messageSender,
+                    );
+                    messageBubbles.add(messageBubble);
                   }
                 }
-                WidgetsBinding.instance
-                    .addPostFrameCallback((_) => _scrolltobottom());
+
+                WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+
                 return Expanded(
                   child: ListView(
-                    children: messagebubbles,
                     controller: _scrollController,
+                    children: messageBubbles,
                   ),
                 );
               },
@@ -110,22 +156,23 @@ class _ChatScreenState extends State<ChatScreen> {
                 children: <Widget>[
                   Expanded(
                     child: TextField(
-                      controller: messagecontroller,
+                      controller: messageController,
                       onChanged: (value) {
-                        messagetext = value;
+                        messageText = value;
                       },
                       decoration: kMessageTextFieldDecoration,
                     ),
                   ),
                   TextButton(
                     onPressed: () {
-                      messagecontroller.clear();
+                      messageController.clear();
+                      suggestReplies();
                       _firestore.collection('messages').add({
                         'timestamp': FieldValue.serverTimestamp(),
-                        'text': messagetext,
-                        'sender': loggedinuser.email,
+                        'text': messageText,
+                        'sender': loggedInUser.email,
                       }).then((_) {
-                        _scrolltobottom();
+                        _scrollToBottom();
                       });
                     },
                     child: Text(
@@ -143,37 +190,38 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
-final _firestore = FirebaseFirestore.instance;
+
+
 void editMessage(String messageId, String newText) {
-  _firestore.collection('messages').doc(messageId).update({
+  FirebaseFirestore.instance.collection('messages').doc(messageId).update({
     'text': newText,
   });
 }
 
 void deleteMessage(String messageId) {
-  _firestore.collection('messages').doc(messageId).delete();
+  FirebaseFirestore.instance.collection('messages').doc(messageId).delete();
 }
 
 class MessageBubble extends StatelessWidget {
   final String text;
   final String sender;
-  final String messageId; // Add messageId
+  final String messageId;
   final bool isMe;
 
-  MessageBubble(
-      {required this.text,
-      required this.sender,
-      required this.messageId,
-      required this.isMe});
+  MessageBubble({
+    required this.text,
+    required this.sender,
+    required this.messageId,
+    required this.isMe,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.all(10),
       child: Column(
-        crossAxisAlignment: isMe
-            ? CrossAxisAlignment.end
-            : CrossAxisAlignment.start, // ternary operator
+        crossAxisAlignment:
+        isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         children: [
           Text(
             sender,
@@ -183,14 +231,15 @@ class MessageBubble extends StatelessWidget {
             elevation: 5,
             borderRadius: isMe
                 ? BorderRadius.only(
-                    topLeft: Radius.circular(30),
-                    bottomLeft: Radius.circular(30),
-                    bottomRight: Radius.circular(30))
+              topLeft: Radius.circular(30),
+              bottomLeft: Radius.circular(30),
+              bottomRight: Radius.circular(30),
+            )
                 : BorderRadius.only(
-                    topRight: Radius.circular(30),
-                    bottomRight: Radius.circular(30),
-                    bottomLeft: Radius.circular(30),
-                  ),
+              topRight: Radius.circular(30),
+              bottomRight: Radius.circular(30),
+              bottomLeft: Radius.circular(30),
+            ),
             color: isMe ? Colors.lightBlueAccent : Colors.white,
             child: Padding(
               padding: EdgeInsets.symmetric(vertical: 10, horizontal: 10),
@@ -200,8 +249,9 @@ class MessageBubble extends StatelessWidget {
                   Text(
                     text,
                     style: TextStyle(
-                        fontSize: 15,
-                        color: isMe ? Colors.white : Colors.black),
+                      fontSize: 15,
+                      color: isMe ? Colors.white : Colors.black,
+                    ),
                   ),
                   if (isMe)
                     PopupMenuButton<String>(
@@ -212,7 +262,7 @@ class MessageBubble extends StatelessWidget {
                             context: context,
                             builder: (context) {
                               TextEditingController controller =
-                                  TextEditingController(text: text);
+                              TextEditingController(text: text);
                               return AlertDialog(
                                 title: Text('Edit Message'),
                                 content: TextField(
